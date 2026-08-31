@@ -206,7 +206,7 @@ pub fn State::handle(self : State, msg : Msg, input : Input) -> State {
         },
       }
     PatternRepairInstructionChanged(instruction) =>
-      { ..self, page: { ..page, pattern_repair_instruction: instruction } }
+      { ..self, page: { ..page, pattern_repair_instruction: instruction, }, }
     SubmitPatternRepair =>
       if page.pattern_repair_phase is PatternRepairComposer &&
         !page.pattern_repair_instruction.trim().to_owned().is_empty() {
@@ -299,7 +299,10 @@ pub fn State::handle(self : State, msg : Msg, input : Input) -> State {
         ..self,
         page: {
           ..page,
-          semantic: { ..page.semantic, patterns: page.semantic.patterns + [""] },
+          semantic: {
+            ..page.semantic,
+            patterns: page.semantic.patterns + [""],
+          },
           pattern_repair_phase: PatternRepairIdle,
           pattern_repair_message: None,
           pattern_repair_candidate: None,

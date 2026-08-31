@@ -28,7 +28,7 @@ test "Code search renders the pattern repair placeholder only in semantic mode" 
     session: "pattern-repair",
   }
   let root = @common.Uri::parse("file:///work")
-  let input : Input = { owner, root: Some(root) }
+  let input : Input = { owner, root: Some(root), }
   let text_html = render_search(State::empty(), input)
   assert_false(text_html.contains("Fix Pattern"))
   let semantic = State::empty().handle(ModeChanged(Semantic), input)
