@@ -64,6 +64,13 @@ jobs:
         working-directory: desktop
         run: moon update
 
+      # Moon runs module prebuilds for JS targets too. Proton 0.2.5 queries
+      # Linux native link metadata there even though this job builds a browser.
+      - name: Install Proton build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libgtk-3-dev libx11-dev
+
       - name: Install E2E dependencies
         working-directory: desktop/e2e
         run: npm ci
