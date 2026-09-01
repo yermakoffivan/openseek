@@ -70,7 +70,7 @@ jobs:
 
       - name: Install Chromium
         working-directory: desktop/e2e
-        run: npx playwright install chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Build Desktop browser application
         working-directory: desktop

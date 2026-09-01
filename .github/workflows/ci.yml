@@ -118,7 +118,7 @@ jobs:
 
       - name: Install Chromium
         working-directory: cmd/viz_app/e2e
-        run: npx playwright install chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Build session viewer
         working-directory: cmd/viz_app

@@ -102,7 +102,7 @@ jobs:
       - name: Install Playwright
         run: |
           npm ci
-          npx playwright install chromium
+          npx playwright install --with-deps chromium
 
       - name: Browser smoke suite
         run: just test-browser-smoke
