@@ -1297,7 +1297,7 @@ fn workspace_settings_page(
   // authoritative read on this connection lands. Until then, the controls
   // stay disabled rather than pretending a choice would stick.
   let row = match model.device_state(channel) {
-    Some(dev) => dev.workspace_settings_row(workspace)
+    Some(dev) => dev.workspace_settings_values(workspace)
     None => None
   }
   let worktree_mode = row is Some(row) && row.worktree_mode
