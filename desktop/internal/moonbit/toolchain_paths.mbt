@@ -5,26 +5,6 @@ const MoonbitBundleStampFile : String = ".openseek-moonbit-bundle-version"
 const MoonbitSeedVersionFile : String = ".openseek-moonbit-seed-version"
 
 ///|
-fn moonbit_toolchain_dir(
-  base : @pathx.Absolute,
-  name : String,
-) -> @pathx.Absolute {
-  base.join("toolchains").join("moonbit").join(name).normalize()
-}
-
-///|
-/// The seed of a package that keeps its executables in a `bin/` directory of
-/// their own, so the toolchain is the binary's uncle rather than its sibling
-/// — the macOS bundle, whose Proton package input stages `bin/openseek`
-/// beside `toolchains/` (`package/macos/main.mbt`). The Linux AppImage and
-/// the Windows bundle drop the engine straight into the directory that holds
-/// `toolchains/`, which `moonbit_toolchain_dir` already covers.
-fn bin_sibling_toolchain_dir(
-  command_dir : @pathx.Absolute,
-  name : String,
-) -> @pathx.Absolute {
-  moonbit_toolchain_dir(command_dir.join("..").normalize(), name)
-}
 
 ///|
 /// A seed is detected by the version stamp packaging writes as its final
@@ -35,13 +15,15 @@ fn bin_sibling_toolchain_dir(
 /// bundle guards integrity from there.
 async fn bundled_moonbit_seed_dir(engine_command : String) -> @pathx.Absolute? {
   let command_dir = @pathx.Path(engine_command).dirname().resolve()
+  // Every installed engine is `seekmoon/bin/openseek[.exe]`; Proton exposes
+  // the containing resource directory consistently on all three platforms.
+  // Platform names still differ because each package carries a native seed,
+  // but there is only one structural location to search.
+  let root = command_dir.join("..").normalize()
   let candidates = [
-    moonbit_toolchain_dir(command_dir, "windows-x64"),
-    moonbit_toolchain_dir(command_dir, "linux-x64"),
-    moonbit_toolchain_dir(command_dir, "macos-arm64"),
-    bin_sibling_toolchain_dir(command_dir, "windows-x64"),
-    bin_sibling_toolchain_dir(command_dir, "linux-x64"),
-    bin_sibling_toolchain_dir(command_dir, "macos-arm64"),
+    root.join("toolchains/moonbit/windows-x64"),
+    root.join("toolchains/moonbit/linux-x64"),
+    root.join("toolchains/moonbit/macos-arm64"),
   ]
   for candidate in candidates {
     let version = bundled_moonbit_seed_version(candidate)
@@ -179,32 +161,19 @@ async fn write_fake_seed(root : @pathx.Absolute) -> Unit {
 }
 
 ///|
-/// The macOS bundle stages the engine one level below the toolchain
-/// (`<input>/bin/openseek` beside `<input>/toolchains/`), unlike the Linux
-/// AppImage and the Windows bundle, which put the engine straight into the
-/// directory holding `toolchains/`. Both shapes must resolve, or the engine
-/// never spawns — `resolve_toolchain` raises before it.
-async test "the seed is found beside the engine and one level above it" {
+/// The installed engine and native MoonBit seed always share the canonical
+/// `seekmoon/` resource root, independent of Proton's outer package layout.
+async test "the seed is found in the canonical seekmoon resource tree" {
   let tmp = @pathx.Path(@fs.tmpdir(prefix="openseek-moonbit-seed-layout-")).resolve()
-  // macOS: `<input>/bin/openseek` with `<input>/toolchains/…`.
-  let bundle = tmp.join("proton-package-input")
-  let bundle_seed = bundle.join("toolchains/moonbit/macos-arm64")
-  write_fake_seed(bundle_seed)
-  @fs.mkdir(bundle.join("bin").to_string(), recursive=true)
-  let bundle_found = bundled_moonbit_seed_dir(
-    bundle.join("bin/openseek").to_string(),
+  let resources = tmp.join("seekmoon")
+  let seed = resources.join("toolchains/moonbit/macos-arm64")
+  write_fake_seed(seed)
+  @fs.mkdir(resources.join("bin").to_string(), recursive=true)
+  let found = bundled_moonbit_seed_dir(
+    resources.join("bin/openseek").to_string(),
   ).map(dir => dir.to_string())
-  // Linux/Windows: the engine sits in the directory that holds `toolchains/`.
-  let flat = tmp.join("usr/bin")
-  let flat_seed = flat.join("toolchains/moonbit/linux-x64")
-  write_fake_seed(flat_seed)
-  let flat_found = bundled_moonbit_seed_dir(flat.join("openseek").to_string()).map(dir => {
-      dir.to_string()
-    },
-  )
   @fs.rmdir(tmp.to_string(), recursive=true) catch {
     _ => ()
   }
-  assert_eq(bundle_found, Some(bundle_seed.normalize().to_string()))
-  assert_eq(flat_found, Some(flat_seed.normalize().to_string()))
+  assert_eq(found, Some(seed.normalize().to_string()))
 }
