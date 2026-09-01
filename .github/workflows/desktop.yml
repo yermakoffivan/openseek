@@ -34,8 +34,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # This is the browser-console product-flow gate. Root CI retains the complete
-  # native/JS MoonBit integration checks for Desktop and its local dependencies.
+  # This is the browser-console product-flow gate. It builds only Desktop's JS
+  # browser package; native Proton packaging remains a platform release concern.
   desktop-e2e:
     name: desktop e2e
     runs-on: ubuntu-latest
@@ -61,15 +61,8 @@ jobs:
             desktop/e2e/package-lock.json
 
       - name: Update MoonBit dependencies
+        working-directory: desktop
         run: moon update
-
-      # package/browser is a native compatibility entrypoint even though its
-      # output is JS. Moon therefore runs Proton's native module prebuild,
-      # which resolves the GTK and X11 link flags through pkg-config.
-      - name: Install Proton build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libgtk-3-dev libx11-dev
 
       - name: Install E2E dependencies
         working-directory: desktop/e2e
@@ -77,11 +70,14 @@ jobs:
 
       - name: Install Chromium
         working-directory: desktop/e2e
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Build Desktop browser application
         working-directory: desktop
-        run: moon run package/browser --target native -- --ci
+        # The historical Moon entrypoint is native and would run Proton's
+        # native prebuild. CI calls the same build program directly because
+        # this browser artifact has no Proton, GTK, or X11 dependency.
+        run: node package/build.mjs browser --ci
 
       - name: Run Desktop E2E tests
         working-directory: desktop/e2e

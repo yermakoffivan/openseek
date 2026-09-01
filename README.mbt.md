@@ -11,23 +11,33 @@ data model, and the life of one agent turn — see
 
 ## Monorepo development
 
-The root [`moon.work`](moon.work) develops OpenSeek, the desktop app, and the
-[`moonbitlang/editor`](editor/README.md) source together. The editor keeps its
-smaller `editor/moon.work` as a scoped entry point for editor-only builds and
-browser tests; root Moon commands are the integration gate across both projects.
+The root [`moon.work`](moon.work) develops OpenSeek, its protocol, visualizer,
+inspector, and the [`moonbitlang/editor`](editor/README.md) source together.
+Desktop owns a separate [`desktop/moon.work`](desktop/moon.work) that adds the
+root, protocol, and editor modules as local members. This keeps Proton out of
+ordinary CLI builds while Desktop still compiles against the same checkout.
+The editor likewise keeps `editor/moon.work` for editor-only work.
 
 A fresh checkout needs the MoonBit toolchain and `just`; `just check` also
 requires `jq` to inspect structured compiler diagnostics. The root integration
 gates are:
 
 ```sh
-just check              # native + JS workspace checks and formatting
-just test               # native + JS workspace tests and OpenSeek cram tests
-just build              # native + JS MoonBit builds
+just check              # native + JS root-workspace checks and formatting
+just test               # native + JS root-workspace tests and OpenSeek cram tests
+just build              # native + JS root-workspace builds
+just desktop-check      # Desktop plus its local module dependencies
+just desktop-test       # Desktop workspace tests
+just desktop-build      # Desktop workspace builds
 just editor-build       # editor web distribution and server
 just editor-test        # editor-only tests on every supported target
 just editor-test-browser
 ```
+
+`moon run cmd/openseek` uses only the root workspace and therefore does not
+resolve Proton or require CEF, GTK, or X11. A package path below `desktop/`
+selects the nested Desktop workspace, so historical commands such as
+`moon run ./desktop/package/macos` continue to work from the repository root.
 
 The editor browser suites additionally need Node.js 18 or newer, the locked npm
 dependencies, and a Playwright-managed Chromium installation:

@@ -5,5 +5,4 @@ members = [
   "./inspect",
   "./editor",
   "./editor/server",
-  "./desktop",
 ]

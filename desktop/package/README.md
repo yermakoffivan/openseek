@@ -70,10 +70,14 @@ Run source checks:
 ```sh
 just desktop-build-scripts-check
 moon -C desktop test internal/host --target native
-just check
-just test
-just build
+just desktop-check
+just desktop-test
+just desktop-build
 ```
+
+The root `just check`, `just test`, and `just build` deliberately exclude the
+Desktop workspace so ordinary OpenSeek CLI development does not resolve
+Proton or require GTK/X11 build packages.
 
 Then build on every target operating system:
 

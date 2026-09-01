@@ -20,6 +20,25 @@ in [`DESIGN.md`](DESIGN.md).
 - `frontend/markdown/` — markdown rendering for transcript content (cmark to Rabbita nodes, panic-guarded).
 - `frontend/interop/` — the typed `@js` helpers shared by the frontend; no frontend package embeds raw JavaScript.
 
+## Workspace
+
+Desktop owns [`moon.work`](moon.work). It includes this module plus the root
+OpenSeek, protocol, and editor modules from the same checkout. Keeping Desktop
+out of the repository's root workspace means `moon run cmd/openseek` never
+resolves Proton and needs no CEF, GTK, or X11 development installation.
+
+Run Desktop-wide MoonBit gates explicitly:
+
+```sh
+just desktop-check
+just desktop-test
+just desktop-build
+```
+
+The commands above run through `desktop/justfile` and share the repository
+`_build` directory. Package paths below `desktop/` still select this nested
+workspace when invoked from the repository root.
+
 ## Sessions and streaming
 
 Each conversation is served by one persistent `openseek serve` engine

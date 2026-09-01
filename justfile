@@ -1,7 +1,7 @@
 default:
     just --list
 
-# Check the two production targets together and verify repository formatting.
+# Check the root workspace's two production targets and repository formatting.
 check:
     moon check --target native --deny-warn
     moon check --target js --deny-warn
@@ -25,6 +25,18 @@ test: test-moon
 test-moon:
     moon test --target native
     moon test --target js
+
+# Check Desktop and the local modules it consumes in its scoped workspace.
+desktop-check:
+    just --justfile desktop/justfile check
+
+# Test Desktop and its local dependencies in its scoped workspace.
+desktop-test:
+    just --justfile desktop/justfile test
+
+# Build Desktop and its local dependencies in its scoped workspace.
+desktop-build:
+    just --justfile desktop/justfile build
 
 # Build the editor's web distribution and reference server in its scoped workspace.
 editor-build:

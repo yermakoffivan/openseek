@@ -41,8 +41,7 @@ eval/swe_agi/**/.openseek/
 .openseek/
 .claude/
 
-# Proton runtime manifest written by `proton_cli cef setup`. It runs at the
-# monorepo root because that is where Moon resolves the Proton package whose
-# prebuilt the runtime is assembled from; the runtime itself lives in the
-# user-level cache the manifest points at.
+# Proton runtime manifest written by `proton_cli cef setup` from Desktop's
+# scoped workspace. The runtime itself lives in the user-level cache the
+# manifest points at.
 .proton/

@@ -30,6 +30,10 @@ class Build {
     this.argv = argv;
     this.desktop = fileURLToPath(new URL("../", import.meta.url));
     this.repo = resolve(this.desktop, "..");
+    // Keep products consumed by both workspaces in the repository build tree.
+    // The Desktop workspace otherwise defaults to desktop/_build, while the
+    // engine and visualizer are built by the root workspace into ../_build.
+    this.build = join(this.repo, "_build");
     this.host = Hosts[process.platform];
     this.npm = process.platform === "win32" ? "npm.cmd" : "npm";
   }
@@ -124,16 +128,16 @@ class Build {
     await this.commandRun(this.npm, ["run", "build"]);
     const release = profile === "release" ? ["--release"] : [];
     if (browser) {
-      await this.commandRun("moon", ["build", "frontend/browser", "--target", "js", ...release]);
+      await this.commandRun("moon", ["build", "frontend/browser", "--target", "js", "--target-dir", this.build, ...release]);
       const output = join(this.desktop, "dist/browser");
       await rm(output, { recursive: true, force: true });
       await mkdir(output, { recursive: true });
       await cp(join(this.desktop, "frontend/browser/index.html"), join(output, "index.html"));
-      await cp(join(this.repo, `_build/js/${profile}/build/openseek_desktop/frontend/browser/browser.js`), join(output, "browser.js"));
+      await cp(join(this.build, `js/${profile}/build/openseek_desktop/frontend/browser/browser.js`), join(output, "browser.js"));
       await this.sharedWeb(output);
       return;
     }
-    await this.commandRun("moon", ["build", "frontend/desktop", "--target", "js", ...release]);
+    await this.commandRun("moon", ["build", "frontend/desktop", "--target", "js", "--target-dir", this.build, ...release]);
     await this.commandRun("moon", ["build", "cmd/viz_app", "--target", "js", ...release], { cwd: this.repo });
   }
 
@@ -159,13 +163,13 @@ class Build {
       await this.commandRun("moon", ["build", ".", "--target", "native", "--target-dir", "target/moonbuild/macos-12.0", ...release], { env });
       await this.commandRun("moon", ["build", "cmd/openseek", "--target", "native", "--target-dir", "desktop/target/moonbuild/macos-12.0", ...release], { cwd: this.repo, env });
       const host = join(this.desktop, `target/moonbuild/macos-12.0/native/${profile}/build/openseek_desktop/openseek_desktop.exe`);
-      const expected = join(this.repo, `_build/native/${profile}/build/openseek_desktop/openseek_desktop.exe`);
+      const expected = join(this.build, `native/${profile}/build/openseek_desktop/openseek_desktop.exe`);
       await mkdir(dirname(expected), { recursive: true });
       await cp(host, expected);
       return join(this.desktop, `target/moonbuild/macos-12.0/native/${profile}/build/bobzhang/openseek/cmd/openseek/openseek.exe`);
     }
     const warning = this.command === "windows" ? ["--warn-list", "-20"] : [];
-    await this.commandRun("moon", ["build", ".", "--target", "native", ...warning, ...release]);
+    await this.commandRun("moon", ["build", ".", "--target", "native", "--target-dir", this.build, ...warning, ...release]);
     await this.commandRun("moon", ["build", "cmd/openseek", "--target", "native", ...release], { cwd: this.repo });
     return join(this.repo, `_build/native/${profile}/build/bobzhang/openseek/cmd/openseek/openseek.exe`);
   }
@@ -213,9 +217,9 @@ class Build {
     await mkdir(join(root, "bin"), { recursive: true });
     await mkdir(join(root, "licenses/ripgrep"), { recursive: true });
     await cp(join(this.desktop, "index.html"), join(root, "web/index.html"));
-    await cp(join(this.repo, `_build/js/${profile}/build/openseek_desktop/frontend/desktop/desktop.js`), join(root, "web/frontend.js"));
+    await cp(join(this.build, `js/${profile}/build/openseek_desktop/frontend/desktop/desktop.js`), join(root, "web/frontend.js"));
     await cp(join(this.repo, "web/index.html"), join(root, "web/viz/index.html"));
-    await cp(join(this.repo, `_build/js/${profile}/build/bobzhang/openseek-viz-app/openseek-viz-app.js`), join(root, "web/viz/viz_app.js"));
+    await cp(join(this.build, `js/${profile}/build/bobzhang/openseek-viz-app/openseek-viz-app.js`), join(root, "web/viz/viz_app.js"));
     await this.sharedWeb(join(root, "web"));
     const suffix = this.command === "windows" ? ".exe" : "";
     await cp(engine, join(root, `bin/openseek${suffix}`));
@@ -283,7 +287,7 @@ class Build {
     if (this.command === "dev") {
       await this.web("debug", false, options.ci);
       await this.commandRun("moon", ["build", "cmd/openseek", "--target", "native"], { cwd: this.repo });
-      return await this.proton(["-C", ".", "dev", "--config", "proton.project.json", "--no-frontend", "--setup"]);
+      return await this.proton(["-C", ".", "dev", "--config", "proton.project.json", "--moon-target-dir", this.build, "--no-frontend", "--setup"]);
     }
     await this.package(options);
   }
