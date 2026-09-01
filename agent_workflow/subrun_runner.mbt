@@ -21,11 +21,11 @@
 /// key held only in memory (e.g. parsed from `--api-key`) must ride
 /// `extra_env` — never argv, which is visible in `ps`.
 ///
-/// `argv` is the spawn seam: it receives the CANONICAL (command, args)
-/// this adapter computed plus the call, and returns what to actually
-/// spawn — tests redirect to scripted `sh` children, wrappers can prepend
-/// a sandbox command, and the canonical argv is in hand either way so
-/// nothing is silently bypassed.
+/// `map_launch` is the spawn seam: it receives the CANONICAL
+/// `@spawn.LaunchSpec` this adapter computed plus the call, and returns
+/// what to actually launch — tests redirect to scripted `sh` children,
+/// wrappers can prepend a sandbox command, and the canonical spec is in
+/// hand either way so nothing is silently bypassed.
 pub fn subrun_runner(
   exe~ : String,
   model? : String,
@@ -33,28 +33,32 @@ pub fn subrun_runner(
   workspace_root? : String,
   deadline_ms? : Int,
   extra_env? : Map[String, String],
-  argv? : ((String, Array[String]), @workflow.AgentCall) -> (
-    String,
-    Array[String],
-  ),
+  map_launch? : (@spawn.LaunchSpec, @workflow.AgentCall) -> @spawn.LaunchSpec,
 ) -> @workflow.Runner {
   @workflow.Runner(call => {
-    let canonical = (exe, subrun_args(call, model, api_url))
-    let (command, args) = match argv {
-      Some(argv) => argv(canonical, call)
+    let canonical : @spawn.LaunchSpec = {
+      command: exe,
+      args: subrun_args(call, model, api_url),
+      cwd: workspace_root,
+      extra_env,
+      deadline_ms: Some(deadline_ms.unwrap_or(default_deadline_ms(call.kind))),
+    }
+    let spec = match map_launch {
+      Some(map_launch) => map_launch(canonical, call)
       None => canonical
     }
-    let cwd = workspace_root
     let result = @agent_subrun.run_subrun(
-      command~,
-      args~,
+      command=spec.command,
+      args=spec.args,
       input=call.input,
       parse_report=report => Ok(report),
-      wall_deadline_ms=deadline_ms.unwrap_or(default_deadline_ms(call.kind)),
+      wall_deadline_ms=spec.deadline_ms.unwrap_or(
+        default_deadline_ms(call.kind),
+      ),
       kind=call.kind,
       label=call.label,
-      cwd?,
-      extra_env?,
+      cwd?=spec.cwd,
+      extra_env?=spec.extra_env,
     )
     outcome_of(result)
   })
@@ -84,7 +88,7 @@ fn outcome_of(
   result : @agent_subrun.SubrunResult[Json],
 ) -> @workflow.AgentOutcome {
   let attempt : @workflow.AgentAttempt = {
-    subrun_id: result.subrun_id(),
+    attempt_id: result.subrun_id(),
     steps_used: result.steps_used(),
     prompt_tokens: result.prompt_tokens(),
     completion_tokens: result.completion_tokens(),

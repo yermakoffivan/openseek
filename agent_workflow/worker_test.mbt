@@ -38,7 +38,7 @@ fn worker_workflow(
       exe="unused",
       workspace_root=repo,
       deadline_ms=10_000,
-      argv=(_, _) => ("sh", ["-c", script]),
+      map_launch=(spec, _) => { ..spec, command: "sh", args: ["-c", script], },
     ),
     journal?,
   )

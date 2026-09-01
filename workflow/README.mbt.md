@@ -47,7 +47,7 @@ async fn verdict_runner(call : @workflow.AgentCall) -> @workflow.AgentOutcome {
     { "confirmed": true }
   }
   Finished(value=verdict, attempt={
-    subrun_id: "sr-\{call.label}",
+    attempt_id: "sr-\{call.label}",
     steps_used: 3,
     prompt_tokens: 70,
     completion_tokens: 30,
@@ -64,6 +64,7 @@ async test "fan out three lenses, gate on a 2-of-3 quorum" {
   wf.phase("Verify")
   let results = @workflow.fan_out(["correctness", "security", "repro"], lens => {
     wf.try_agent(
+      kind="judge",
       "Judge the finding through lens=\{lens}: real?",
       label="verify:\{lens}",
     )
@@ -93,11 +94,15 @@ pipeline:
 async test "find then verify, with no barrier between the stages" {
   let wf = @workflow.Workflow(runner=@workflow.Runner(verdict_runner))
   let verified = @workflow.fan_out(["pkg/a", "pkg/b"], target => {
-    let finding = wf.try_agent("Find the worst bug in \{target}")
+    let finding = wf.try_agent("Find the worst bug in \{target}", kind="judge")
     match finding {
       // Each finding proceeds to verification the moment ITS finder
       // returns — b's finder may still be running while a verifies.
-      Ok(_) => wf.try_agent("Adversarially verify the finding in \{target}")
+      Ok(_) =>
+        wf.try_agent(
+          "Adversarially verify the finding in \{target}",
+          kind="judge",
+        )
       Err(error) => Err(error)
     }
   })
@@ -122,7 +127,10 @@ async test "the second generation replays instead of re-paying" {
     runner=@workflow.Runner(verdict_runner),
     journal~,
   )
-  let first = wf1.agent("Judge the finding through lens=security: real?")
+  let first = wf1.agent(
+    "Judge the finding through lens=security: real?",
+    kind="judge",
+  )
   assert_eq(wf1.tokens_spent(), 100)
 
   // Same program, next generation: served from the journal — no launch,
@@ -131,7 +139,10 @@ async test "the second generation replays instead of re-paying" {
     runner=@workflow.Runner(verdict_runner),
     journal=@workflow.Journal::in_memory(prior=journal.recorded()),
   )
-  assert_eq(wf2.agent("Judge the finding through lens=security: real?"), first)
+  assert_eq(
+    wf2.agent("Judge the finding through lens=security: real?", kind="judge"),
+    first,
+  )
   assert_eq(wf2.calls_made(), 0)
   assert_eq(wf2.calls_replayed(), 1)
   assert_eq(wf2.tokens_spent(), 0)
@@ -156,15 +167,21 @@ observational: no control flow rides on events.
 ## Plugging in an engine
 
 Any process that speaks the CHILD CONTRACT is already an engine: one
-JSON input line on stdin (the pipe held open — EOF is graceful cancel),
-JSONL events on stdout (`usage`/`agent_step` are accounted exactly), and
-one final `{"subrun_report": ...}` line. The `spawn` sub-package is the
-contract's one implementation:
+JSON line on stdin — the VERSIONED request envelope
+`{"workflow_contract": 1, id, kind, max_steps?, input}`, with the pipe
+held open (EOF is graceful cancel) — JSONL events on stdout
+(`usage`/`agent_step` are accounted exactly), and one final
+`{"subrun_report": ...}` line. The `spawn` sub-package is the contract's
+one implementation:
 
 ```moonbit nocheck
 ///|
-let runner = @spawn.contract_runner(spawn_argv=call => {
-  ("my-engine", [call.kind])
+let runner = @spawn.contract_runner(launch=_ => {
+  command: "my-engine",
+  args: [],
+  cwd: None,
+  extra_env: None,
+  deadline_ms: None,
 })
 ```
 

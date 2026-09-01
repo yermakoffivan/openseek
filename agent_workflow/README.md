@@ -17,7 +17,7 @@ around a foreign engine (a Rust CLI, say) is ~100 lines of framing
 translation.
 
 - `subrun_runner(exe~, ..)` — read-only kinds (`explore`, `review`,
-  `echo`): canonical argv construction, per-kind wall deadlines, the
+  `echo`): canonical `LaunchSpec` construction (with a `map_launch` transform seam), per-kind wall deadlines, the
   `extra_env` credential overlay (keys never ride argv), and a lossless
   `SubrunTerminal → AgentOutcome` mapping so even a timed-out child's
   spend reaches the budget and the journal.

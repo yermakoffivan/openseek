@@ -14,6 +14,8 @@ async fn run_script(script : String) -> @spawn.ContractResult {
     command="sh",
     args=["-c", script],
     input={ "query": "q" },
+    kind="probe",
+    id="test-1",
     wall_deadline_ms=10_000,
   )
 }
@@ -88,6 +90,8 @@ async test "a spawn failure folds into Failed, never a crash" {
     command="/nonexistent/engine-not-here",
     args=[],
     input={ "query": "q" },
+    kind="probe",
+    id="test-2",
     wall_deadline_ms=2_000,
   )
   match result.terminal {
@@ -114,22 +118,43 @@ async test "a foreign contract engine gets workflows and replay for free" {
     #|printf '{"timestamp":"t","level":"INFO","source":"s","event":"usage","usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10,"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":7}}\n'
     #|printf '{"subrun_report": %s}\n' "$line"
   let wf1 = @workflow.Workflow(
-    runner=@spawn.contract_runner(spawn_argv=_ => ("sh", ["-c", live])),
+    runner=@spawn.contract_runner(launch=_ => {
+      command: "sh",
+      args: ["-c", live],
+      cwd: None,
+      extra_env: None,
+      deadline_ms: None,
+    }),
     journal=@workflow.Journal::load(path),
   )
-  // The report echoes the input line: the call's input IS the child's.
-  let first = wf1.agent("hello", hints="from a foreign engine")
-  assert_eq(first, { "query": "hello", "hints": "from a foreign engine" })
+  // The report echoes the input line: the v1 request envelope carrying
+  // the call's kind and exact input — self-contained, no argv needed.
+  let first = wf1.agent("hello", kind="probe", hints="from a foreign engine")
+  assert_eq(first, {
+    "workflow_contract": 1,
+    "id": "cr-1",
+    "kind": "probe",
+    "input": { "query": "hello", "hints": "from a foreign engine" },
+  })
   assert_eq(wf1.tokens_spent(), 10)
   // Resume: served from the journal, no process spawned.
   let poisoned =
     #|read line
     #|printf '{"subrun_report": {"wrong": true}}\n'
   let wf2 = @workflow.Workflow(
-    runner=@spawn.contract_runner(spawn_argv=_ => ("sh", ["-c", poisoned])),
+    runner=@spawn.contract_runner(launch=_ => {
+      command: "sh",
+      args: ["-c", poisoned],
+      cwd: None,
+      extra_env: None,
+      deadline_ms: None,
+    }),
     journal=@workflow.Journal::load(path),
   )
-  assert_eq(wf2.agent("hello", hints="from a foreign engine"), first)
+  assert_eq(
+    wf2.agent("hello", kind="probe", hints="from a foreign engine"),
+    first,
+  )
   assert_eq(wf2.calls_made(), 0)
   assert_eq(wf2.calls_replayed(), 1)
   @fs.rmdir(dir, recursive=true) catch {

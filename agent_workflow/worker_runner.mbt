@@ -25,10 +25,7 @@ pub fn openseek_runner(
   deadline_ms? : Int,
   max_workers? : Int = 4,
   extra_env? : Map[String, String],
-  argv? : ((String, Array[String]), @workflow.AgentCall) -> (
-    String,
-    Array[String],
-  ),
+  map_launch? : (@spawn.LaunchSpec, @workflow.AgentCall) -> @spawn.LaunchSpec,
 ) -> @workflow.Runner raise {
   guard max_workers >= 1 else {
     fail("openseek_runner: max_workers must be at least 1")
@@ -40,7 +37,7 @@ pub fn openseek_runner(
     workspace_root~,
     deadline_ms?,
     extra_env?,
-    argv?,
+    map_launch?,
   )
   let worker_slots : @async.Semaphore = Semaphore(max_workers)
   @workflow.Runner(
@@ -49,10 +46,10 @@ pub fn openseek_runner(
         worker_slots.acquire()
         defer worker_slots.release()
         run_worker_slice(
-          call, exe, model, api_url, workspace_root, deadline_ms, extra_env, argv,
+          call, exe, model, api_url, workspace_root, deadline_ms, extra_env, map_launch,
         )
       } else {
-        (scouts.run)(call)
+        scouts.invoke(call)
       }
     },
     validate_replay=(call, outcome) => {
@@ -128,10 +125,7 @@ async fn run_worker_slice(
   workspace_root : String,
   deadline_ms : Int?,
   extra_env : Map[String, String]?,
-  argv : (((String, Array[String]), @workflow.AgentCall) -> (
-    String,
-    Array[String],
-  ))?,
+  map_launch : ((@spawn.LaunchSpec, @workflow.AgentCall) -> @spawn.LaunchSpec)?,
 ) -> @workflow.AgentOutcome {
   guard call.input
     is {
@@ -216,26 +210,32 @@ async fn run_worker_slice(
         "base_oid": entry.base_oid,
       }
   }
-  let canonical = (exe, subrun_args(call, model, api_url))
-  let (command, args) = match argv {
-    Some(argv) => argv(canonical, call)
+  let canonical : @spawn.LaunchSpec = {
+    command: exe,
+    args: subrun_args(call, model, api_url),
+    cwd: Some(entry.worker_root),
+    extra_env,
+    deadline_ms: Some(deadline_ms.unwrap_or(default_deadline_ms("worker"))),
+  }
+  let spec = match map_launch {
+    Some(map_launch) => map_launch(canonical, call)
     None => canonical
   }
   let result = @agent_subrun.run_subrun(
-    command~,
-    args~,
+    command=spec.command,
+    args=spec.args,
     input=child_input,
     // The same trust-boundary re-check the engine's launcher applies: a
     // garbled report is a Failed terminal, never presented as a report.
     parse_report=@agent_worker.WorkerReport::parse_validated,
-    wall_deadline_ms=deadline_ms.unwrap_or(default_deadline_ms("worker")),
+    wall_deadline_ms=spec.deadline_ms.unwrap_or(default_deadline_ms("worker")),
     kind="worker",
     label=call.label,
-    cwd=entry.worker_root,
-    extra_env?,
+    cwd?=spec.cwd,
+    extra_env?=spec.extra_env,
   )
   let attempt : @workflow.AgentAttempt = {
-    subrun_id: result.subrun_id(),
+    attempt_id: result.subrun_id(),
     steps_used: result.steps_used(),
     prompt_tokens: result.prompt_tokens(),
     completion_tokens: result.completion_tokens(),
@@ -325,10 +325,10 @@ async fn validate_worker_replay(
   workspace_root : String,
   call : @workflow.AgentCall,
   outcome : @workflow.AgentOutcome,
-) -> Bool {
-  guard call.kind == "worker" else { return true }
+) -> @workflow.ReplayDecision {
+  guard call.kind == "worker" else { return Serve(outcome) }
   // Journalled failures never replay anyway; only successes need a veto.
-  guard outcome is Finished(value~, ..) else { return true }
+  guard outcome is Finished(value~, ..) else { return Serve(outcome) }
   guard value
     is {
       "state": String(state),
@@ -336,18 +336,18 @@ async fn validate_worker_replay(
       "branch": String(branch),
       ..
     } else {
-    return false
+    return Rerun
   }
   if state == "NoChanges" {
-    return true
+    return Serve(outcome)
   }
-  guard state == "Committed" else { return false }
+  guard state == "Committed" else { return Rerun }
   let commit : String? = match value {
     { "commit_oid": String(oid), .. } => Some(oid)
     _ => None
   }
   guard @agent_subtask.resolve_geometry(workspace_root) is Ok(geometry) else {
-    return false
+    return Rerun
   }
   let (entries, _) = @agent_subtask.load_entries(geometry.common_git_dir)
   for entry in entries {
@@ -359,10 +359,10 @@ async fn validate_worker_replay(
       // checkout with the same exact-path predicate integration uses —
       // a lexical prefix would accept /repo-copy for /repo.
       geometry.is_integration_target_for(entry) {
-      return true
+      return Serve(outcome)
     }
   }
-  false
+  Rerun
 }
 
 ///|

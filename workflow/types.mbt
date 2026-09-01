@@ -12,6 +12,10 @@ pub(all) struct AgentCall {
   input : Json
   label : String
   max_steps : Int?
+  /// Replay namespace: everything OUTSIDE the input that makes two
+  /// otherwise-identical calls non-interchangeable — model, prompt
+  /// revision, tenant, workspace. Empty means "unscoped".
+  scope : String
 } derive(Eq, ToJson, FromJson)
 
 ///|
@@ -19,7 +23,7 @@ pub(all) struct AgentCall {
 /// not the attempt produced a report: a timed-out child spent real tokens,
 /// and losing that spend would understate every budget built on top.
 pub(all) struct AgentAttempt {
-  subrun_id : String
+  attempt_id : String
   steps_used : Int
   prompt_tokens : Int
   completion_tokens : Int

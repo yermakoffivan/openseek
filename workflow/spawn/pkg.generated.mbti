@@ -6,9 +6,9 @@ import {
 }
 
 // Values
-pub async fn contract_run(command~ : String, args~ : Array[String], input~ : Json, wall_deadline_ms~ : Int, cancel_grace_ms? : Int, cwd? : String, extra_env? : Map[String, String], progress? : ContractProgress, observe_line? : (Json) -> Unit) -> ContractResult
+pub async fn contract_run(command~ : String, args~ : Array[String], input~ : Json, kind~ : String, id~ : String, max_steps? : Int, wall_deadline_ms~ : Int, cancel_grace_ms? : Int, cwd? : String, extra_env? : Map[String, String], progress? : ContractProgress, observe_line? : (Json) -> Unit) -> ContractResult
 
-pub fn contract_runner(spawn_argv~ : (@workflow.AgentCall) -> (String, Array[String]), deadline_ms? : Int, cwd? : String, extra_env? : Map[String, String], validate_replay? : async (@workflow.AgentCall, @workflow.AgentOutcome) -> Bool) -> @workflow.Runner
+pub fn contract_runner(launch~ : (@workflow.AgentCall) -> LaunchSpec, deadline_ms? : Int, validate_replay? : async (@workflow.AgentCall, @workflow.AgentOutcome) -> @workflow.ReplayDecision) -> @workflow.Runner
 
 // Errors
 
@@ -38,6 +38,16 @@ pub enum ContractTerminal {
 } derive(Eq)
 pub fn ContractTerminal::equal(Self, Self) -> Bool
 pub fn ContractTerminal::not_equal(Self, Self) -> Bool
+
+pub(all) struct LaunchSpec {
+  command : String
+  args : Array[String]
+  cwd : String?
+  extra_env : Map[String, String]?
+  deadline_ms : Int?
+} derive(Eq)
+pub fn LaunchSpec::equal(Self, Self) -> Bool
+pub fn LaunchSpec::not_equal(Self, Self) -> Bool
 
 // Type aliases
 

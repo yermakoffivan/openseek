@@ -141,6 +141,8 @@ pub async fn[T] run_subrun(
     command~,
     args~,
     input~,
+    kind~,
+    id~,
     wall_deadline_ms~,
     cwd?,
     extra_env?,

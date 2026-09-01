@@ -50,8 +50,8 @@ pub impl Show for JournalCorrupted with fn output(self, logger) {
 ///   FOR, so the call runs live again (and consumes fresh launch
 ///   allowance — size `max_calls` with re-attempts in mind).
 ///
-/// Identity is the call's work content — kind, input, max_steps — never
-/// the display label. Duplicate identical calls are intentional samples
+/// Identity is the call's work content — kind, input, max_steps, and
+/// the workflow's replay scope — never the display label. Duplicate identical calls are intentional samples
 /// (three identical verifiers), so matching consumes entries as a
 /// multiset: each replay consumes one entry, in file order, and only LIVE
 /// outcomes are recorded — replays are never re-appended, so entry counts
@@ -130,7 +130,7 @@ pub async fn Journal::load(path : String) -> Journal {
     if needs_repair {
       let out = StringBuilder()
       for entry in prior {
-        out.write_string(entry.to_json().stringify())
+        out.write_string(({ "v": 1, "e": entry.to_json() } : Json).stringify())
         out.write_char('\n')
       }
       let tmp = path + ".repair"
@@ -156,7 +156,12 @@ fn parse_line(segment : BytesView) -> JournalEntry? raise {
   if text.is_empty() {
     return None
   }
-  Some(@json.from_json(@json.parse(text.to_owned())))
+  // Schema-versioned envelope: the storage format is an evolvable
+  // contract of its own, never derived codec output blessed by accident.
+  guard @json.parse(text.to_owned()) is { "v": Number(1, ..), "e": entry, .. } else {
+    fail("journal line is not a v1 entry")
+  }
+  Some(@json.from_json(entry))
 }
 
 ///|
@@ -175,7 +180,10 @@ pub fn Journal::prior(self : Journal) -> Array[JournalEntry] {
 ///|
 /// Two calls describe the same WORK: everything but the display label.
 fn same_work(a : AgentCall, b : AgentCall) -> Bool {
-  a.kind == b.kind && a.input == b.input && a.max_steps == b.max_steps
+  a.kind == b.kind &&
+  a.input == b.input &&
+  a.max_steps == b.max_steps &&
+  a.scope == b.scope
 }
 
 ///|
@@ -236,7 +244,7 @@ async fn Journal::record(self : Journal, entry : JournalEntry) -> Unit {
     // wipe the generations already on disk.
     @fs.write_file(
       path,
-      entry.to_json().stringify() + "\n",
+      ({ "v": 1, "e": entry.to_json() } : Json).stringify() + "\n",
       append=true,
       create_mode=OpenOrCreate,
     )

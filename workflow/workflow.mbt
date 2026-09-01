@@ -41,6 +41,7 @@ pub struct Workflow {
   slots : @async.Semaphore
   on_event : (WorkflowEvent) -> Unit
   journal : Journal?
+  replay_scope : String
   max_calls : Int?
   mut calls_made : Int
   mut replays : Int
@@ -58,6 +59,7 @@ pub fn Workflow::Workflow(
   max_concurrent? : Int = 8,
   max_calls? : Int,
   journal? : Journal,
+  replay_scope? : String = "",
   on_event? : (WorkflowEvent) -> Unit = _ => (),
 ) -> Workflow raise {
   guard max_concurrent >= 1 else {
@@ -71,6 +73,7 @@ pub fn Workflow::Workflow(
     slots: Semaphore(max_concurrent),
     on_event,
     journal,
+    replay_scope,
     max_calls,
     calls_made: 0,
     replays: 0,
@@ -81,15 +84,15 @@ pub fn Workflow::Workflow(
 }
 
 ///|
-/// Run ONE sub-agent and return its report value. The default `kind` is
-/// `explore` (the read-only scout). Raises `AgentFailed` when the child
+/// Run ONE sub-agent and return its report value, from the standard
+/// scout input shape ({query, hints?} — contract v1). Raises `AgentFailed` when the child
 /// produced no usable report and `CallBudgetExhausted` when the launch
 /// allowance was spent — catch into a `Result` at fan-out sites
 /// (`try_agent` is the shorthand), propagate at load-bearing ones.
 pub async fn Workflow::agent(
   self : Workflow,
   prompt : String,
-  kind? : String = "explore",
+  kind~ : String,
   hints? : String,
   label? : String,
   max_steps? : Int,
@@ -123,7 +126,13 @@ pub async fn Workflow::agent_call(
   // Phase attribution is invocation-time, not launch-time: a call issued
   // under phase A that waits out the queue into phase B still belongs to A.
   let phase = self.current_phase
-  let call : AgentCall = { kind, input, label, max_steps, }
+  let call : AgentCall = {
+    kind,
+    input,
+    label,
+    max_steps,
+    scope: self.replay_scope,
+  }
   // Replay is checked before the slot queue and the allowance: a replayed
   // result is not a launch — it holds no slot, debits no allowance, and
   // re-charges no tokens (historical spend lives in the journal). The
@@ -134,14 +143,11 @@ pub async fn Workflow::agent_call(
   // claim rolled back: that entry was neither served nor rejected.
   if self.journal is Some(journal) {
     while journal.claim(call) is Some((slot, outcome)) {
-      let valid = {
+      let decision = {
         errdefer journal.release(slot)
-        match self.runner.validate_replay {
-          Some(validate) => validate(call, outcome)
-          None => true
-        }
+        self.runner.decide_replay(call, outcome)
       }
-      guard valid else { continue }
+      guard decision is Serve(outcome) else { continue }
       self.replays += 1
       match outcome {
         Finished(value~, ..) => {
@@ -217,7 +223,7 @@ pub async fn Workflow::agent_call(
 pub async fn Workflow::try_agent(
   self : Workflow,
   prompt : String,
-  kind? : String = "explore",
+  kind~ : String,
   hints? : String,
   label? : String,
   max_steps? : Int,

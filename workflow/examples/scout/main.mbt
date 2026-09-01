@@ -27,10 +27,10 @@ async fn main {
   let kind = if args.length() >= 4 { args[3] } else { "echo" }
   let model : String? = if args.length() >= 5 { Some(args[4]) } else { None }
   let wf = @workflow.Workflow(
-    runner=@spawn.contract_runner(spawn_argv=call => {
-      // The script owns its argv: kind, step ceiling, and model ride
-      // exactly the flags the engine's subrun mode parses. The API key
-      // is NEVER here — it rides the inherited environment.
+    runner=@spawn.contract_runner(launch=call => {
+      // The script owns its launch: the request ENVELOPE already carries
+      // kind and the step ceiling, so argv holds only engine settings.
+      // The API key is NEVER here — it rides the inherited environment.
       let argv = ["subrun", call.kind]
       if call.max_steps is Some(steps) {
         argv.push("--max-steps")
@@ -40,7 +40,13 @@ async fn main {
         argv.push("--model")
         argv.push(model)
       }
-      (exe, argv)
+      {
+        command: exe,
+        args: argv,
+        cwd: None,
+        extra_env: None,
+        deadline_ms: None,
+      }
     }),
     max_concurrent=4,
     max_calls=16,

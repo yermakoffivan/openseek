@@ -5,7 +5,10 @@
 ///
 /// - the runner writes ONE JSON line on the child's stdin and holds the
 ///   pipe open — closing it is the graceful-cancel signal, not the end
-///   of input;
+///   of input. The line is the VERSIONED request envelope
+///   `{"workflow_contract": 1, "id": ..., "kind": ..., "max_steps"?: ...,
+///   "input": ...}` — self-contained, so the request never depends on
+///   engine-specific argv (argv remains deployment configuration);
 /// - the child emits JSONL on stdout: event lines (an object with an
 ///   `event` tag — `usage` and `agent_step` are summed/maxed for exact
 ///   cost accounting; `max_steps_exhausted`, `context_yield`,
@@ -163,6 +166,9 @@ pub async fn contract_run(
   command~ : String,
   args~ : Array[String],
   input~ : Json,
+  kind~ : String,
+  id~ : String,
+  max_steps? : Int,
   wall_deadline_ms~ : Int,
   cancel_grace_ms? : Int = default_cancel_grace_ms,
   cwd? : String,
@@ -243,11 +249,24 @@ pub async fn contract_run(
         }
       }
       async fn feed_and_drain() -> Unit {
-        // One input line; the pipe stays open — EOF is the cancel signal,
-        // not the end of input. The write sits INSIDE the deadline scope:
-        // an input larger than the pipe capacity against a child that
-        // never reads must hit the wall deadline, not block forever.
-        stdin_writer.write("\{input.stringify()}\n")
+        // One input line — the v1 request envelope; the pipe stays open,
+        // EOF is the cancel signal, not the end of input. The write sits
+        // INSIDE the deadline scope: an input larger than the pipe
+        // capacity against a child that never reads must hit the wall
+        // deadline, not block forever.
+        let request : Json = match max_steps {
+          Some(steps) =>
+            {
+              "workflow_contract": 1,
+              "id": id,
+              "kind": kind,
+              "max_steps": steps,
+              "input": input,
+            }
+          None =>
+            { "workflow_contract": 1, "id": id, "kind": kind, "input": input }
+        }
+        stdin_writer.write("\{request.stringify()}\n")
         drain()
       }
       try {
@@ -326,36 +345,55 @@ pub async fn contract_run(
 }
 
 ///|
-/// A `Runner` for ANY engine speaking the child contract: `spawn_argv`
-/// turns each call into (command, argv), the input line is the call's
-/// exact `input`, and every terminal maps into the lossless
+/// HOW one call becomes a process: the executable, its argv, and the
+/// per-launch execution envelope. Everything a sandbox wrapper or a
+/// deployment would want to rewrite lives HERE, in one immutable value —
+/// never scattered across positional tuples.
+pub(all) struct LaunchSpec {
+  command : String
+  args : Array[String]
+  cwd : String?
+  extra_env : Map[String, String]?
+  deadline_ms : Int?
+} derive(Eq)
+
+///|
+pub extend LaunchSpec with Eq::{equal, not_equal}
+
+///|
+/// A `Runner` for ANY engine speaking the child contract: `launch` turns
+/// each call into a `LaunchSpec`, the request envelope carries the
+/// call's kind/limits/input, and every terminal maps into the lossless
 /// `AgentOutcome` envelope. For engines whose reports are pure values
 /// this is the whole adapter — an openseek-independent codex shim plugs
 /// in right here. An engine whose reports name STATEFUL resources must
 /// also pass `validate_replay`, or resumed journals can serve outcomes
 /// whose referents no longer exist.
 pub fn contract_runner(
-  spawn_argv~ : (@workflow.AgentCall) -> (String, Array[String]),
+  launch~ : (@workflow.AgentCall) -> LaunchSpec,
   deadline_ms? : Int = 600_000,
-  cwd? : String,
-  extra_env? : Map[String, String],
-  validate_replay? : async (@workflow.AgentCall, @workflow.AgentOutcome) -> Bool,
+  validate_replay? : async (@workflow.AgentCall, @workflow.AgentOutcome) -> @workflow.ReplayDecision,
 ) -> @workflow.Runner {
   let ids : Ref[Int] = { val: 0, }
   @workflow.Runner(validate_replay?, call => {
-    let (command, args) = spawn_argv(call)
+    let spec = launch(call)
     ids.val += 1
     let id = "cr-\{ids.val}"
+    let cwd = spec.cwd
+    let extra_env = spec.extra_env
     let result = contract_run(
-      command~,
-      args~,
+      command=spec.command,
+      args=spec.args,
       input=call.input,
-      wall_deadline_ms=deadline_ms,
+      kind=call.kind,
+      id~,
+      max_steps?=call.max_steps,
+      wall_deadline_ms=spec.deadline_ms.unwrap_or(deadline_ms),
       cwd?,
       extra_env?,
     )
     let attempt : @workflow.AgentAttempt = {
-      subrun_id: id,
+      attempt_id: id,
       steps_used: result.steps_used,
       prompt_tokens: result.prompt_tokens,
       completion_tokens: result.completion_tokens,
